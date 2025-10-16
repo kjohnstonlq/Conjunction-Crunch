@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conjunction Crunch</title>
+    <style>
+        /* Custom CSS for a dark, retro-arcade aesthetic */
+        body {
+            background-color: #1a1a1a;
+            color: #fff;
+            font-family: 'Arial Black', Gadget, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start; /* Aligned to start to use max space */
+            min-height: 100vh;
+            margin: 0;
+            padding: 10px; /* Reduced padding for more space */
+        }
+
+        h1 {
+            margin-bottom: 10px;
+        }
+
+        #gameContainer {
+            box-shadow: 0 0 20px rgba(255, 255, 0, 0.5);
+            border: 4px solid #fff;
+            border-radius: 8px;
+            /* Max width/height removed here, sizing is handled by JS for maximum viewport usage */
+            flex-grow: 1; /* Allows container to take up remaining height */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+        }
+
+        canvas {
+            background-color: #000;
+            display: block;
+            touch-action: none; /* Disable default touch actions */
+            border-radius: 4px;
+            /* Canvas style dimensions will be set by JavaScript for max size */
+        }
+
+        .controls, .message-box {
+            margin-top: 15px;
+            padding: 10px;
+            width: 100%;
+            max-width: 800px; /* Max width to keep controls readable */
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .message-box {
+            min-height: 50px;
+            font-size: 1.2rem;
+            text-align: center;
+            align-items: center;
+            color: #fff;
+            margin-top: 10px;
+        }
+
+        button {
+            background-color: #ffcc00;
+            color: #000;
+            border: none;
+            padding: 12px 25px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 50px;
+            box-shadow: 0 5px #ccaa00;
+            transition: all 0.1s ease;
+        }
+
+        button:hover {
+            background-color: #ffe066;
+        }
+
+        button:active {
+            box-shadow: 0 2px #ccaa00;
+            transform: translateY(3px);
+        }
+
+        /* Mobile Controls */
+        #mobile-controls {
+            display: none;
+            width: 100%;
+            max-width: 400px;
+            padding: 10px 0;
+            justify-content: space-around;
+        }
+
+        .mobile-btn {
+            width: 60px;
+            height: 60px;
+            background-color: #333;
+            color: #fff;
+            border: 3px solid #ffcc00;
+            border-radius: 50%;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        @media (max-width: 768px) {
+            .controls {
+                display: none; /* Hide desktop instructions */
+            }
+            #mobile-controls {
+                display: flex;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Conjunction Crunch: Pac-Man Style</h1>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <div id="message-box" class="message-box">
+        Press START to begin! Use WASD or Arrow Keys to move.
+    </div>
+
+    <div id="mobile-controls">
+        <div class="mobile-btn" data-direction="up">↑</div>
+        <div class="mobile-btn" data-direction="left">←</div>
+        <div class="mobile-btn" data-direction="right">→</div>
+        <div class="mobile-btn" data-direction="down">↓</div>
+    </div>
+
+    <div class="controls">
+        <button id="startButton" onclick="initGame()">START NEW GAME</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const messageBox = document.getElementById('message-box');
+        const startButton = document.getElementById('startButton');
+        const gameContainer = document.getElementById('gameContainer');
+        
+        // --- GAME CONSTANTS ---
+        // These will be dynamically calculated based on viewport size
+        let GAME_WIDTH;
+        let GAME_HEIGHT;
+        const GAME_ASPECT_RATIO = 800 / 500; // 1.6
+        
+        const PLAYER_RADIUS = 15;
+        const PLAYER_SPEED = 4;
+        const WORD_COUNT_SC = 10;
+        const WORD_COUNT_NON_SC = 20;
+        
+        // Word speed halved: 1 -> 0.5, and 2.5 -> 1.25
+        const WORD_SPEED_MIN = 0.5; 
+        const WORD_SPEED_MAX = 1.25;
+        
+        const WORD_RADIUS = 10; // Used for collision detection
+
+        // --- GAME STATE ---
+        let gameState = 'ready'; // 'ready', 'running', 'win', 'lose'
+        let player = { x: 0, y: 0, dx: 0, dy: 0, color: '#FFCC00', angle: 0, mouthOpen: 0 };
+        let words = [];
+        let score = 0;
+        let animationFrameId;
+
+        // --- WORD BANK (240+ words total) ---
+        const SUBORDINATING_CONJUNCTIONS = [
+            "after", "although", "as", "because", "before", "if", "since", "though", "unless", "until",
+            "when", "while", "whenever", "where", "wherever", "whether", "as if", "as long as", "as much as",
+            "as soon as", "even if", "even though", "in order that", "provided that", "so that", "than", "that",
+            "why", "in case", "once", "lest", "till", "accordingly", "thereby", "notwithstanding",
+            "supposing", "now that", "except that", "for as much as", "just as", "only if", "whereas"
+        ];
+
+        const OTHER_WORDS = [
+            // Nouns
+            "dog", "house", "cat", "city", "tree", "river", "mountain", "car", "phone", "book", "table", "chair", "pencil", "glove", "idea", "truth", "justice", "freedom", "person", "time", "year", "way", "day", "thing", "man", "world", "life", "hand", "part", "child", "eye", "woman", "place", "work", "week", "case", "point", "government", "company", "number",
+            // Verbs
+            "run", "walk", "sing", "dance", "eat", "sleep", "think", "talk", "say", "make", "take", "give", "find", "tell", "ask", "seem", "feel", "try", "leave", "call", "look", "want", "use", "work", "play", "move", "live", "believe", "hold", "bring", "happen", "write", "provide", "sit", "stand", "lose", "gain", "start", "stop", "change",
+            // Adjectives
+            "happy", "sad", "big", "small", "tall", "short", "fast", "slow", "good", "bad", "new", "old", "hot", "cold", "red", "blue", "green", "yellow", "dark", "light", "easy", "hard", "local", "public", "late", "early", "future", "present", "clear", "simple", "complex", "beautiful", "ugly", "kind", "cruel", "poor", "rich", "strong", "weak", "able",
+            // Adverbs
+            "quickly", "slowly", "loudly", "softly", "always", "never", "often", "seldom", "here", "there", "everywhere", "tomorrow", "yesterday", "today", "very", "too", "so", "well", "badly", "really", "almost", "just", "still", "away", "back", "forward", "up", "down", "out", "in", "instead", "finally", "mostly", "clearly",
+            // Prepositions & Coordinating Conjunctions
+            "in", "on", "at", "by", "with", "from", "of", "to", "for", "over", "under", "through", "near", "above", "below", "into", "onto", "across", "along", "behind", "between", "among",
+            "and", "nor", "but", "or", "yet", "hence", "therefore", "moreover", "otherwise", "besides", "indeed"
+        ];
+
+
+        /** Utility function to get a random item from an array */
+        function getRandom(arr) {
+            return arr[Math.floor(Math.random() * arr.length)];
+        }
+
+        /** Utility function to get a random number within a range */
+        function randRange(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+        
+        /** Draws the initial title screen when the game is not running */
+        function drawInitialScreen() {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+            
+            ctx.fillStyle = '#FFCC00';
+            ctx.font = 'bold ' + (GAME_WIDTH / 20) + 'px Arial Black, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('CONJUNCTION CRUNCH', GAME_WIDTH / 2, GAME_HEIGHT / 2 - 20);
+            
+            ctx.fillStyle = '#fff';
+            ctx.font = 'normal ' + (GAME_WIDTH / 45) + 'px Arial, sans-serif';
+            ctx.fillText('Click START to play!', GAME_WIDTH / 2, GAME_HEIGHT / 2 + 20);
+        }
+
+        /** Initialize the canvas size to maximize viewport usage while maintaining aspect ratio */
+        function resizeCanvas() {
+            const containerWidth = gameContainer.clientWidth;
+            const containerHeight = gameContainer.clientHeight;
+
+            let newWidth = containerWidth;
+            let newHeight = containerWidth / GAME_ASPECT_RATIO;
+
+            // Check if height exceeds container, if so, scale based on height
+            if (newHeight > containerHeight) {
+                newHeight = containerHeight;
+                newWidth = newHeight * GAME_ASPECT_RATIO;
+            }
+
+            // Ensure we have reasonable minimum size, though viewport size should prevent issues
+            if (newWidth < 300) {
+                 newWidth = 300;
+                 newHeight = newWidth / GAME_ASPECT_RATIO;
+            }
+
+            // Set the new game dimensions
+            GAME_WIDTH = newWidth;
+            GAME_HEIGHT = newHeight;
+
+            canvas.width = GAME_WIDTH;
+            canvas.height = GAME_HEIGHT;
+
+            // Scale canvas display size to fit the calculated dimensions
+            canvas.style.width = `${GAME_WIDTH}px`;
+            canvas.style.height = `${GAME_HEIGHT}px`;
+            
+            // Redraw the screen if not running
+            if (gameState !== 'running') {
+                drawInitialScreen();
+            }
+        }
+
+        /** Creates a word object */
+        function createWord(text, type) {
+            // Position words randomly, but not too close to edges
+            const padding = 50;
+            return {
+                text: text,
+                type: type,
+                x: randRange(padding, GAME_WIDTH - padding),
+                y: randRange(padding, GAME_HEIGHT - padding),
+                dx: randRange(WORD_SPEED_MIN, WORD_SPEED_MAX) * (Math.random() > 0.5 ? 1 : -1),
+                dy: randRange(WORD_SPEED_MIN, WORD_SPEED_MAX) * (Math.random() > 0.5 ? 1 : -1),
+                color: '#FF0033', // ALL words are RED
+                eaten: false
+            };
+        }
+
+        /** Resets and starts a new game */
+        function initGame() {
+            if (gameState === 'running') {
+                cancelAnimationFrame(animationFrameId);
+            }
+            
+            // IMPORTANT: Recalculate size before setting initial positions
+            resizeCanvas(); 
+
+            // 1. Reset State
+            player.x = GAME_WIDTH / 2;
+            player.y = GAME_HEIGHT / 2;
+            player.dx = 0;
+            player.dy = 0;
+            player.angle = 0;
+            player.mouthOpen = 0;
+            words = [];
+            score = 0;
+            gameState = 'running';
+            messageBox.textContent = `Score: 0 / ${WORD_COUNT_SC}. Good luck!`;
+            startButton.disabled = true;
+
+            // 2. Select Word Pool
+            const selectedSCs = [];
+            while (selectedSCs.length < WORD_COUNT_SC) {
+                const word = getRandom(SUBORDINATING_CONJUNCTIONS);
+                if (!selectedSCs.includes(word)) {
+                    selectedSCs.push(word);
+                }
+            }
+
+            const selectedNonSCs = [];
+            while (selectedNonSCs.length < WORD_COUNT_NON_SC) {
+                const word = getRandom(OTHER_WORDS);
+                if (!selectedNonSCs.includes(word)) {
+                    selectedNonSCs.push(word);
+                }
+            }
+
+            // 3. Create Word Objects
+            selectedSCs.forEach(word => {
+                words.push(createWord(word.toUpperCase(), 'SC'));
+            });
+            selectedNonSCs.forEach(word => {
+                words.push(createWord(word.toUpperCase(), 'NON_SC'));
+            });
+
+            // 4. Start Loop
+            gameLoop();
+        }
+
+        /** Draws the player (Pac-Man) */
+        function drawPlayer() {
+            ctx.fillStyle = player.color;
+            ctx.beginPath();
+
+            // Simple mouth animation
+            const mouthMin = Math.PI * 0.1;
+            const mouthMax = Math.PI * 0.7;
+            const mouth = mouthMin + (Math.sin(player.mouthOpen) * (mouthMax - mouthMin) / 2);
+
+            let startAngle = player.angle + mouth;
+            let endAngle = player.angle - mouth;
+
+            ctx.arc(player.x, player.y, PLAYER_RADIUS, startAngle, endAngle, false);
+            ctx.lineTo(player.x, player.y);
+            ctx.closePath();
+            ctx.fill();
+
+            player.mouthOpen += 0.1;
+            if (player.mouthOpen > Math.PI * 2) {
+                player.mouthOpen = 0;
+            }
+        }
+
+        /** Draws a word object */
+        function drawWord(word) {
+            if (word.eaten) return;
+
+            ctx.fillStyle = word.color;
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1;
+
+            // Draw text
+            ctx.font = 'bold 16px Arial, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(word.text, word.x, word.y);
+
+            // Draw a small circle border around it for collision visual
+            ctx.beginPath();
+            ctx.arc(word.x, word.y, WORD_RADIUS + 5, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        /** Updates the player's position and angle */
+        function updatePlayer() {
+            player.x += player.dx;
+            player.y += player.dy;
+
+            // Update angle based on movement direction for rotation
+            if (player.dx !== 0 || player.dy !== 0) {
+                player.angle = Math.atan2(player.dy, player.dx);
+            }
+
+            // Keep player within bounds
+            if (player.x < PLAYER_RADIUS) player.x = PLAYER_RADIUS;
+            if (player.x > GAME_WIDTH - PLAYER_RADIUS) player.x = GAME_WIDTH - PLAYER_RADIUS;
+            if (player.y < PLAYER_RADIUS) player.y = PLAYER_RADIUS;
+            if (player.y > GAME_HEIGHT - PLAYER_RADIUS) player.y = GAME_HEIGHT - PLAYER_RADIUS;
+        }
+
+        /** Updates the word positions and bounces them off the walls */
+        function updateWords() {
+            words.forEach(word => {
+                if (word.eaten) return;
+
+                word.x += word.dx;
+                word.y += word.dy;
+
+                // Bounce off left/right walls
+                if (word.x < WORD_RADIUS || word.x > GAME_WIDTH - WORD_RADIUS) {
+                    word.dx *= -1;
+                }
+                // Bounce off top/bottom walls
+                if (word.y < WORD_RADIUS || word.y > GAME_HEIGHT - WORD_RADIUS) {
+                    word.dy *= -1;
+                }
+            });
+        }
+
+        /** Checks for collisions between player and words */
+        function checkCollisions() {
+            words.forEach(word => {
+                if (word.eaten || gameState !== 'running') return;
+
+                const dx = player.x - word.x;
+                const dy = player.y - word.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                // Collision detected if distance is less than the sum of radii
+                if (distance < PLAYER_RADIUS + WORD_RADIUS + 5) {
+                    handleCollision(word);
+                }
+            });
+        }
+
+        /** Handles the outcome of eating a word */
+        function handleCollision(word) {
+            if (word.type === 'SC') {
+                // EAT SC (Subordinating Conjunction) - Good!
+                word.eaten = true;
+                score++;
+                messageBox.textContent = `Score: ${score} / ${WORD_COUNT_SC}. You crunched a conjunction!`;
+                if (score === WORD_COUNT_SC) {
+                    endGame('win');
+                }
+            } else {
+                // EAT Non-SC (Other Word) - Game Over!
+                endGame('lose', `Game Over! You ate a non-conjunction word: "${word.text}"`);
+            }
+        }
+
+        /** Ends the game */
+        function endGame(result, customMessage = null) {
+            gameState = result;
+            cancelAnimationFrame(animationFrameId);
+            startButton.disabled = false;
+            let msg;
+
+            if (result === 'win') {
+                msg = `🏆 YOU WIN! You successfully ate all ${WORD_COUNT_SC} subordinating conjunctions!`;
+            } else {
+                msg = customMessage || `GAME OVER! Try again.`;
+            }
+
+            // Win message is teal, lose message is red/orange
+            messageBox.innerHTML = `<span style="color:${result === 'win' ? '#00FFCC' : '#FF0033'};">${msg}</span>`;
+        }
+
+        /** Main game loop */
+        function gameLoop() {
+            if (gameState !== 'running') return;
+
+            // 1. Clear the canvas
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+            // 2. Update logic
+            updatePlayer();
+            updateWords();
+            checkCollisions();
+
+            // 3. Draw elements
+            words.forEach(drawWord);
+            drawPlayer();
+
+            // 4. Request next frame
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        // --- INPUT HANDLING (Keyboard) ---
+        function handleKeyDown(e) {
+            if (gameState !== 'running') return;
+
+            let newDx = player.dx;
+            let newDy = player.dy;
+
+            switch (e.key) {
+                case 'ArrowUp':
+                case 'w':
+                case 'W':
+                    newDy = -PLAYER_SPEED; newDx = 0; break;
+                case 'ArrowDown':
+                case 's':
+                case 'S':
+                    newDy = PLAYER_SPEED; newDx = 0; break;
+                case 'ArrowLeft':
+                case 'a':
+                case 'A':
+                    newDx = -PLAYER_SPEED; newDy = 0; break;
+                case 'ArrowRight':
+                case 'd':
+                case 'D':
+                    newDx = PLAYER_SPEED; newDy = 0; break;
+                default:
+                    return;
+            }
+            e.preventDefault();
+            player.dx = newDx;
+            player.dy = newDy;
+        }
+
+        function handleKeyUp(e) {
+            if (gameState !== 'running') return;
+            switch (e.key) {
+                case 'ArrowUp':
+                case 'w':
+                case 'W':
+                case 'ArrowDown':
+                case 's':
+                case 'S':
+                    player.dy = 0; break;
+                case 'ArrowLeft':
+                case 'a':
+                case 'A':
+                case 'ArrowRight':
+                case 'd':
+                case 'D':
+                    player.dx = 0; break;
+                default:
+                    return;
+            }
+        }
+
+        // --- INPUT HANDLING (Mobile/Touch) ---
+        document.querySelectorAll('.mobile-btn').forEach(button => {
+            const direction = button.getAttribute('data-direction');
+
+            const startMove = (e) => {
+                e.preventDefault();
+                if (gameState !== 'running') return;
+                let newDx = 0;
+                let newDy = 0;
+
+                switch (direction) {
+                    case 'up': newDy = -PLAYER_SPEED; break;
+                    case 'down': newDy = PLAYER_SPEED; break;
+                    case 'left': newDx = -PLAYER_SPEED; break;
+                    case 'right': newDx = PLAYER_SPEED; break;
+                }
+                player.dx = newDx;
+                player.dy = newDy;
+            };
+
+            const stopMove = (e) => {
+                e.preventDefault();
+                if (gameState !== 'running') return;
+                // Simple stop on release, more complex logic (like matching dx/dy to direction) is needed for precision
+                if (direction === 'up' || direction === 'down') {
+                    player.dy = 0;
+                } else if (direction === 'left' || direction === 'right') {
+                    player.dx = 0;
+                }
+            };
+
+            button.addEventListener('mousedown', startMove);
+            button.addEventListener('touchstart', startMove);
+            button.addEventListener('mouseup', stopMove);
+            button.addEventListener('touchend', stopMove);
+            button.addEventListener('mouseleave', stopMove); // Stop if mouse slides off
+        });
+
+
+        // --- INITIALIZATION ---
+        window.addEventListener('load', () => {
+            // Initial call to set size and draw screen
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            document.addEventListener('keydown', handleKeyDown);
+            document.addEventListener('keyup', handleKeyUp);
+        });
+
+    </script>
+</body>
+</html>
