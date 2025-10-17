@@ -24,15 +24,19 @@
         }
 
         #gameContainer {
+            /* UPDATED: Use flex to display canvas and word bank side-by-side */
+            display: flex; 
+            flex-direction: row; 
             box-shadow: 0 0 20px rgba(255, 255, 0, 0.5);
             border: 4px solid #fff;
             border-radius: 8px;
-            /* Max width/height removed here, sizing is handled by JS for maximum viewport usage */
-            flex-grow: 1; /* Allows container to take up remaining height */
-            display: flex;
-            align-items: center;
+            flex-grow: 1; 
+            align-items: stretch; /* Stretch items to match height */
             justify-content: center;
-            width: 100%;
+            width: 95%; 
+            max-width: 1200px; /* Increased max-width */
+            gap: 15px; /* Space between canvas and word bank */
+            padding: 10px;
         }
 
         canvas {
@@ -40,7 +44,63 @@
             display: block;
             touch-action: none; /* Disable default touch actions */
             border-radius: 4px;
-            /* Canvas style dimensions will be set by JavaScript for max size */
+            flex-shrink: 0; /* Prevents canvas from shrinking */
+        }
+        
+        /* NEW: Word Bank Styles */
+        #wordBank {
+            background-color: #2a2a2a;
+            border: 2px solid #ffcc00;
+            border-radius: 6px;
+            padding: 10px;
+            width: 200px; /* Fixed width for the word bank on desktop */
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+            align-self: stretch; /* Stretch to match canvas height */
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+        
+        #wordBank h2 {
+            font-size: 1.2rem;
+            color: #00FFCC; /* Target color */
+            margin-top: 0;
+            margin-bottom: 10px;
+            text-align: center;
+            border-bottom: 1px solid #444;
+            padding-bottom: 5px;
+        }
+        
+        #wordList {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-wrap: wrap; /* Allow words to wrap */
+            justify-content: flex-start;
+            gap: 4px;
+        }
+        
+        #wordList li {
+            font-size: 0.9rem;
+            color: #fff;
+            padding: 5px 8px;
+            margin: 0;
+            border-radius: 3px;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            font-weight: bold;
+            flex: 1 1 auto; /* Allow items to grow/shrink */
+            min-width: 80px;
+            text-align: center;
+            background-color: #444;
+        }
+
+        .eaten {
+            text-decoration: line-through;
+            color: #666 !important; /* Dim the color */
+            background-color: #1a1a1a;
         }
 
         .controls, .message-box {
@@ -109,6 +169,23 @@
         }
 
         @media (max-width: 768px) {
+            #gameContainer {
+                flex-direction: column; /* Stack vertically on mobile */
+                width: 100%;
+                padding: 0;
+                border: none;
+                box-shadow: none;
+            }
+            #wordBank {
+                width: 90%; /* Take up most of the screen width */
+                height: auto; /* Allow height to adjust */
+                max-height: 150px; /* Limit height to prevent taking up too much screen */
+                margin-top: 10px;
+                order: -1; /* Place word bank above the canvas on mobile */
+            }
+             #wordList {
+                justify-content: flex-start;
+            }
             .controls {
                 display: none; /* Hide desktop instructions */
             }
@@ -122,6 +199,16 @@
 
     <h1>Conjunction Crunch: Pac-Man Style</h1>
     <div id="gameContainer">
+        
+        <!-- Word Bank (New Element) -->
+        <div id="wordBank">
+            <h2>Subordinating Conjunctions</h2>
+            <ul id="wordList">
+                <!-- Words are populated here by JavaScript -->
+            </ul>
+        </div>
+        
+        <!-- Game Canvas -->
         <canvas id="gameCanvas"></canvas>
     </div>
 
@@ -146,6 +233,7 @@
         const messageBox = document.getElementById('message-box');
         const startButton = document.getElementById('startButton');
         const gameContainer = document.getElementById('gameContainer');
+        const wordListElement = document.getElementById('wordList'); // New reference
         
         // --- GAME CONSTANTS ---
         // These will be dynamically calculated based on viewport size
@@ -204,7 +292,7 @@
         function randRange(min, max) {
             return Math.random() * (max - min) + min;
         }
-        
+
         /** Draws the initial title screen when the game is not running */
         function drawInitialScreen() {
             ctx.fillStyle = '#000000';
@@ -223,19 +311,31 @@
 
         /** Initialize the canvas size to maximize viewport usage while maintaining aspect ratio */
         function resizeCanvas() {
-            const containerWidth = gameContainer.clientWidth;
-            const containerHeight = gameContainer.clientHeight;
+            // Calculate available space in the game container for the canvas
+            // Account for the fixed word bank width (200px) and gap (15px) on desktop
+            const isMobile = window.innerWidth <= 768;
+            let availableWidth = gameContainer.clientWidth;
+            let containerHeight = gameContainer.clientHeight;
+            
+            if (!isMobile) {
+                // Subtract space for the word bank and gap
+                availableWidth -= 200 + 15 + 20; // 200px wordBank + 15px gap + 10px padding on each side of gameContainer
+            }
 
-            let newWidth = containerWidth;
-            let newHeight = containerWidth / GAME_ASPECT_RATIO;
+            // Calculate the height based on available width and aspect ratio
+            let newWidth = availableWidth;
+            let newHeight = availableWidth / GAME_ASPECT_RATIO;
 
-            // Check if height exceeds container, if so, scale based on height
-            if (newHeight > containerHeight) {
-                newHeight = containerHeight;
+            // If the calculated height is too tall for the container, adjust based on height
+            if (!isMobile && newHeight > containerHeight - 20) { // -20 for container padding
+                newHeight = containerHeight - 20;
+                newWidth = newHeight * GAME_ASPECT_RATIO;
+            } else if (isMobile && newHeight > containerHeight - 150) { // Subtract approximate height of word bank on mobile
+                newHeight = containerHeight - 150;
                 newWidth = newHeight * GAME_ASPECT_RATIO;
             }
 
-            // Ensure we have reasonable minimum size, though viewport size should prevent issues
+            // Clamp minimum size for visibility
             if (newWidth < 300) {
                  newWidth = 300;
                  newHeight = newWidth / GAME_ASPECT_RATIO;
@@ -295,6 +395,7 @@
             gameState = 'running';
             messageBox.textContent = `Score: 0 / ${WORD_COUNT_SC}. Good luck!`;
             startButton.disabled = true;
+            wordListElement.innerHTML = ''; // Clear previous list
 
             // 2. Select Word Pool
             const selectedSCs = [];
@@ -312,8 +413,18 @@
                     selectedNonSCs.push(word);
                 }
             }
+            
+            // 3. Populate Word Bank (NEW STEP)
+            selectedSCs.forEach(word => {
+                const li = document.createElement('li');
+                // Create a clean ID for linking between game object and list item
+                li.id = 'sc-' + word.toLowerCase().replace(/\s/g, '-'); 
+                li.textContent = word.toUpperCase();
+                wordListElement.appendChild(li);
+            });
 
-            // 3. Create Word Objects
+
+            // 4. Create Word Objects
             selectedSCs.forEach(word => {
                 words.push(createWord(word.toUpperCase(), 'SC'));
             });
@@ -321,7 +432,7 @@
                 words.push(createWord(word.toUpperCase(), 'NON_SC'));
             });
 
-            // 4. Start Loop
+            // 5. Start Loop
             gameLoop();
         }
 
@@ -428,6 +539,14 @@
                 word.eaten = true;
                 score++;
                 messageBox.textContent = `Score: ${score} / ${WORD_COUNT_SC}. You crunched a conjunction!`;
+                
+                // MARK WORD BANK ITEM
+                const wordId = 'sc-' + word.text.toLowerCase().replace(/\s/g, '-');
+                const liToMark = document.getElementById(wordId);
+                if (liToMark) {
+                    liToMark.classList.add('eaten');
+                }
+
                 if (score === WORD_COUNT_SC) {
                     endGame('win');
                 }
